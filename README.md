@@ -3,7 +3,7 @@
 An interactive dashboard built on a real public retail dataset (Superstore, from Kaggle).
 A Python script (pandas) cleans the raw CSV, and a plain HTML/CSS/JavaScript page (Chart.js) shows it with filters.
 
-**Live demo:** https://YOUR-USERNAME.github.io/sales-dashboard/
+**Live demo:** https://osamamohamedgamal57-star.github.io/sales-dashboard/
 **Data source:** Superstore Dataset on Kaggle (vivek468/superstore-dataset-final)
 
 ## Features
@@ -33,4 +33,4 @@ python prepare_data.py
 3. Open `index.html` in your browser. No server needed.
 
 ## What I learned
-(Write 3 sentences here in your own words.)
+I learned how to clean a real dataset with pandas, including removing duplicates and fixing dates. I connected a Python data pipeline to a JavaScript page that updates charts when filters change. I also published the project online with GitHub Pages.
