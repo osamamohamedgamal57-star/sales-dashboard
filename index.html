@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Superstore Sales Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f2f4f7; --card: #ffffff; --ink: #1b2430; --muted: #5d6877;
+    --line: #dde2e9; --accent: #0f766e; --accent2: #b45309; --grid: #e6e9ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12171e; --card: #1a212b; --ink: #e8ecf1; --muted: #9aa5b4;
+      --line: #2b3441; --accent: #2dd4bf; --accent2: #f59e0b; --grid: #2b3441;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.5; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  label { display: flex; flex-direction: column; font-size: .85rem; color: var(--muted); gap: 4px; }
+  select, button { font: inherit; color: var(--ink); background: var(--card);
+                   border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 150px; }
+  button { cursor: pointer; align-self: flex-end; }
+  select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi, .panel { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  .kpi span { display: block; color: var(--muted); font-size: .85rem; }
+  .kpi strong { font-size: 1.6rem; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+  .panel h2 { font-size: 1rem; margin: 0 0 12px; }
+  .chart-box { position: relative; height: 280px; }
+  .wide { grid-column: 1 / -1; }
+  #empty { display: none; text-align: center; padding: 40px; color: var(--muted); }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Superstore Sales Dashboard</h1>
+  <p class="sub" id="sub">Pick a filter and every number and chart updates.</p>
+
+  <div class="filters">
+    <label>Year <select id="year"></select></label>
+    <label>Region <select id="region"></select></label>
+    <label>Category <select id="category"></select></label>
+    <button id="reset" type="button">Reset filters</button>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span>Total revenue</span><strong id="k-rev">-</strong></div>
+    <div class="kpi"><span>Orders</span><strong id="k-orders">-</strong></div>
+    <div class="kpi"><span>Average order value</span><strong id="k-avg">-</strong></div>
+    <div class="kpi"><span>Best category</span><strong id="k-best">-</strong></div>
+  </div>
+
+  <p id="empty">No orders match these filters. Try resetting them.</p>
+
+  <div class="grid" id="charts">
+    <section class="panel"><h2>Revenue by month</h2><div class="chart-box"><canvas id="c-month"></canvas></div></section>
+    <section class="panel"><h2>Revenue by region</h2><div class="chart-box"><canvas id="c-region"></canvas></div></section>
+    <section class="panel wide"><h2>Revenue by category</h2><div class="chart-box"><canvas id="c-cat"></canvas></div></section>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="data.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const money = (n) => "$" + Math.round(n).toLocaleString("en-US");
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const unique = (key) => [...new Set(DATA.map((d) => d[key]))].sort();
+
+// ---- fill the filter dropdowns ----
+function fillSelect(id, values) {
+  $(id).innerHTML = '<option value="all">All</option>' + values.map((v) => `<option>${v}</option>`).join("");
+}
+if (!DATA.length) {
+  document.getElementById("sub").textContent = "No data loaded yet. Run prepare_data.py to create data.js (see README).";
+}
+fillSelect("year", unique("year"));
+fillSelect("region", unique("region"));
+fillSelect("category", unique("category"));
+
+// ---- helpers ----
+function getFiltered() {
+  const y = $("year").value, r = $("region").value, c = $("category").value;
+  return DATA.filter((d) =>
+    (y === "all" || String(d.year) === y) &&
+    (r === "all" || d.region === r) &&
+    (c === "all" || d.category === c));
+}
+function sumBy(rows, key) {
+  const out = {};
+  rows.forEach((d) => { out[d[key]] = (out[d[key]] || 0) + d.revenue; });
+  return out;
+}
+
+// ---- charts ----
+const charts = {};
+function draw(id, type, labels, values, color) {
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: type === "doughnut", labels: { color: css("--ink") } } },
+  };
+  if (type !== "doughnut") {
+    opts.scales = {
+      x: { ticks: { color: css("--muted"), maxTicksLimit: 8 }, grid: { display: false } },
+      y: { ticks: { color: css("--muted"), callback: (v) => (v / 1000) + "k" }, grid: { color: css("--grid") } },
+    };
+  }
+  const data = { labels, datasets: [{ data: values, backgroundColor: color, borderColor: color,
+                                     borderWidth: type === "line" ? 2 : 0, tension: .3, pointRadius: 0 }] };
+  if (charts[id]) { charts[id].data = data; charts[id].options = opts; charts[id].update(); }
+  else charts[id] = new Chart($(id), { type, data, options: opts });
+}
+
+function render() {
+  const rows = getFiltered();
+  $("empty").style.display = rows.length ? "none" : "block";
+  $("charts").style.display = rows.length ? "grid" : "none";
+
+  const total = rows.reduce((s, d) => s + d.revenue, 0);
+  const byCat = sumBy(rows, "category");
+  const best = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
+  $("k-rev").textContent = money(total);
+  const orders = new Set(rows.map((d) => d.order_id)).size;
+  $("k-orders").textContent = orders.toLocaleString("en-US");
+  $("k-avg").textContent = orders ? money(total / orders) : "-";
+  $("k-best").textContent = best ? best[0] : "-";
+  if (!rows.length) return;
+
+  const byMonth = sumBy(rows, "month"), months = Object.keys(byMonth).sort();
+  draw("c-month", "line", months, months.map((m) => byMonth[m]), css("--accent"));
+
+  const byReg = sumBy(rows, "region"), regs = Object.keys(byReg);
+  const palette = [css("--accent"), css("--accent2"), "#6366f1", "#e11d48", "#64748b"];
+  draw("c-region", "doughnut", regs, regs.map((r) => byReg[r]), palette);
+
+  const cats = Object.keys(byCat);
+  draw("c-cat", "bar", cats, cats.map((c) => byCat[c]), css("--accent"));
+}
+
+["year", "region", "category"].forEach((id) => $(id).addEventListener("change", render));
+$("reset").addEventListener("click", () => {
+  ["year", "region", "category"].forEach((id) => ($(id).value = "all"));
+  render();
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+if (DATA.length) {
+  const yrs = unique("year");
+  $("sub").textContent = `Orders from ${yrs[0]} to ${yrs[yrs.length - 1]} across ${unique("region").length} regions. Pick a filter and every number and chart updates.`;
+}
+render();
+</script>
+</body>
+</html>
